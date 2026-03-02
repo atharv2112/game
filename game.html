@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flyafy Bird</title>
+<style>
+body { margin:0; overflow:hidden; font-family:Arial,sans-serif; }
+#intro {
+  position:fixed; inset:0;
+  background:linear-gradient(#111,#222);
+  color:white;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:10;
+}
+h1 { position:absolute; top:20px; }
+button, select { padding:12px 22px; font-size:18px; border-radius:8px; border:none; margin-top:10px; }
+button { background:gold; }
+canvas { display:block; }
+</style>
+</head>
+<body>
+
+<div id="intro">
+  <h1>Flyafy Bird by Atharv</h1>
+  <label>🌙☀️ Mode</label>
+  <select id="mode">
+    <option value="day">Day</option>
+    <option value="night">Night</option>
+  </select>
+  <button id="start">Start Game</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const startBtn = document.getElementById("start");
+const intro = document.getElementById("intro");
+const modeSelect = document.getElementById("mode");
+
+let mode = "day", running=false;
+const music = new Audio("https://cdn.pixabay.com/audio/2023/03/13/audio_8bdbedc3f6.mp3");
+music.loop = true; music.volume=0.6;
+
+const bird = { x:120, y:canvas.height/2, r:18, v:0, g:0.2, lift:-5 }; // slower gravity & lift
+
+let pipes = [], planes = [], stars = [], frame=0, score=0;
+let high = localStorage.getItem("flyafyHigh") || 0;
+
+/* ⭐ stars */
+for(let i=0;i<80;i++){ stars.push({ x:Math.random()*canvas.width, y:Math.random()*canvas.height, r:Math.random()*2 });}
+
+/* ✈️ planes */
+function makePlane(){ 
+  planes.push({x:canvas.width+50, y:Math.random()*canvas.height*0.5+50, speed:1+Math.random()*1.5, blink:Math.random()*60}); 
+}
+
+/* 🧱 pipes */
+function makePipe(){ 
+  const gap=220; 
+  const top=Math.random()*(canvas.height-gap-200)+100; 
+  pipes.push({x:canvas.width, top, w:80, passed:false}); 
+}
+
+/* controls */
+document.addEventListener("click",()=>{if(running) bird.v=bird.lift});
+document.addEventListener("touchstart",()=>{if(running) bird.v=bird.lift});
+document.addEventListener("keydown", (e)=>{ if(running && e.code==="Space") bird.v=bird.lift; }); // Spacebar control
+
+/* start game */
+startBtn.onclick=()=>{
+  mode = modeSelect.value;
+  intro.style.display="none";
+  running = true;
+  bird.y = canvas.height/2;
+  bird.v = 0;
+  pipes=[]; planes=[]; frame=0; score=0;
+  loop();
+  music.play().catch(()=>{}); // play music but don't block canvas
+};
+
+/* draw background */
+function drawBackground(){
+  if(mode==="day"){
+    ctx.fillStyle="#7ec8ff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  }else{
+    ctx.fillStyle="#061826"; ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle="#f5f3ce"; ctx.beginPath(); ctx.arc(canvas.width-100,100,40,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="white";
+    stars.forEach(s=>{ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill();});
+  }
+}
+
+/* draw planes with blinking lights */
+function drawPlane(p){
+  ctx.fillStyle=mode==="day"?"#555":"#aaa";
+  ctx.fillRect(p.x,p.y,50,8);
+  if(mode==="night"){
+    p.blink++;
+    const on = Math.floor(p.blink/30)%2===0;
+    if(on){
+      ctx.fillStyle="red"; ctx.beginPath(); ctx.arc(p.x+6,p.y+4,3,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle="white"; ctx.beginPath(); ctx.arc(p.x+44,p.y+4,3,0,Math.PI*2); ctx.fill();
+    }
+  }
+}
+
+/* draw bird */
+function drawBird(){ ctx.fillStyle="#ff5722"; ctx.beginPath(); ctx.arc(bird.x,bird.y,bird.r,0,Math.PI*2); ctx.fill();}
+
+/* draw everything */
+function draw(){
+  drawBackground();
+  planes.forEach(drawPlane);
+  ctx.fillStyle="#2ecc71";
+  pipes.forEach(p=>{ctx.fillRect(p.x,0,p.w,p.top); ctx.fillRect(p.x,p.top+220,p.w,canvas.height);});
+  drawBird();
+  ctx.fillStyle="white"; ctx.font="24px Arial"; ctx.textAlign="right";
+  ctx.fillText("Score: "+score,canvas.width-20,40);
+  ctx.fillText("High: "+high,canvas.width-20,70);
+}
+
+/* update game */
+function update(){
+  bird.v += bird.g; bird.y += bird.v;
+  if(frame%150===0) makePipe();
+  if(frame%300===0) makePlane();
+
+  pipes.forEach(p=>{
+    p.x -= 3; // slightly slower than before
+    if(!p.passed && p.x+p.w<bird.x){ score++; p.passed=true; music.playbackRate=Math.min(1+score*0.02,1.3);}
+    if(bird.x+bird.r>p.x && bird.x-bird.r<p.x+p.w && (bird.y-bird.r<p.top || bird.y+bird.r>p.top+220)) gameOver();
+  });
+
+  planes.forEach(pl=>pl.x-=pl.speed*0.8); // slightly slower planes
+  pipes=pipes.filter(p=>p.x+p.w>0);
+  planes=planes.filter(pl=>pl.x>-60);
+
+  if(bird.y<0 || bird.y>canvas.height) gameOver();
+  frame++;
+}
+
+/* loop */
+function loop(){ if(!running) return; update(); draw(); requestAnimationFrame(loop);}
+
+/* game over */
+function gameOver(){
+  running=false; music.pause();
+  if(score>high){ high=score; localStorage.setItem("flyafyHigh",high);}
+  alert("Game Over\nScore: "+score);
+  intro.style.display="flex";
+}
+</script>
+
+</body>
+</html>
